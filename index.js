@@ -75,13 +75,12 @@ async function run() {
     const db = client.db("smart-home");
 
     const usersCollection = db.collection("user");
+
     const serviceCollection = db.collection("services");
 
     app.get("/users/:email/role", async (req, res) => {
       const email = req.params.email;
-      console.log(email)
       const user = await usersCollection.findOne({ email });
-    console.log(user)
       res.send({ data: user });
     });
 
@@ -92,9 +91,12 @@ async function run() {
       user.last_loggedIn = new Date().toISOString();
       user.role = "User";
 
-      const query = {
-        email: user.email,
-      };
+      const email = user.email;
+      const userExists = await usersCollection.findOne({ email });
+
+      if (userExists) {
+        return res.send({ message: "user exists" });
+      }
 
       console.log("Saving new user info......");
       const result = await usersCollection.insertOne(user);
@@ -105,6 +107,32 @@ async function run() {
       const result = await serviceCollection.find().toArray();
       res.send(result);
     });
+
+    // PATCH: Update User Role
+    app.patch("/users/role/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        const { role } = req.body; // New role from client (ex: "user")
+
+        const filter = { email: email };
+        const updateDoc = {
+          $set: { role: role },
+        };
+
+        const result = await usersCollection.updateOne(filter, updateDoc);
+
+        res.send(result);
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Error updating role" });
+      }
+    });
+   
+
+    app.get("/users", async (req, res) => {
+    const users = await usersCollection.find().toArray(); // thik naam
+    res.send(users);
+});
 
     // GET /api/services -> list all services (optionally pagination)
     app.get("/api/services", async (req, res) => {
