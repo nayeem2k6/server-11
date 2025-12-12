@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
 const port = process.env.PORT || 3000;
 const decoded = Buffer.from(
@@ -49,7 +49,7 @@ const verifyJWT = async (req, res, next) => {
 const verifyAdmin = async (req, res, next) => {
   const email = req.tokenEmail;
   try {
-    const user = await User.findOne({ email });
+    const user = await usersCollection.findOne({ email });
     if (user && user.role === "admin") {
       next();
     } else {
@@ -73,6 +73,7 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     const db = client.db("smart-home");
+    const bookingCollection = db.collection("bookings");
 
     const usersCollection = db.collection("user");
 
@@ -102,10 +103,47 @@ async function run() {
       const result = await usersCollection.insertOne(user);
       res.send(result);
     });
+    app.post("/bookings", async (req, res) => {
+      const booking = req.body;
+      const result = await bookingCollection.insertOne(booking);
+      res.send(result);
+    });
 
     app.get("/services", async (req, res) => {
-      const result = await serviceCollection.find().toArray();
+      const { search, type, min, max } = req.query;
+      let query = {};
+
+      // Search by title
+      if (search) {
+        query.title = { $regex: search, $options: "i" };
+      }
+
+      // Filter by type (you must add a "type" field in DB)
+      if (type) {
+        query.type = type;
+      }
+
+      // Filter min price
+      if (min) {
+        query.price = { ...query.price, $gte: parseInt(min) };
+      }
+
+      // Filter max price
+      if (max) {
+        query.price = { ...query.price, $lte: parseInt(max) };
+      }
+
+      const result = await serviceCollection.find(query).toArray();
       res.send(result);
+    });
+
+    app.get("/services/:id", async (req, res) => {
+      const { id } = req.params;
+      console.log(id);
+      const objectId = new ObjectId(id);
+      const result = await serviceCollection.findOne({ _id: objectId });
+
+      res.send({ success: true, result });
     });
 
     // PATCH: Update User Role
@@ -127,12 +165,11 @@ async function run() {
         res.status(500).send({ message: "Error updating role" });
       }
     });
-   
 
     app.get("/users", async (req, res) => {
-    const users = await usersCollection.find().toArray(); // thik naam
-    res.send(users);
-});
+      const users = await usersCollection.find().toArray(); // thik naam
+      res.send(users);
+    });
 
     // GET /api/services -> list all services (optionally pagination)
     app.get("/api/services", async (req, res) => {
