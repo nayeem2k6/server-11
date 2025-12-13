@@ -36,7 +36,7 @@ const verifyJWT = async (req, res, next) => {
   if (!token) return res.status(401).send({ message: "Unauthorized Access!" });
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    req.tokenEmail = decoded.email;
+    req.decoded = decoded;
     console.log(decoded);
     next();
   } catch (err) {
@@ -103,9 +103,55 @@ async function run() {
       const result = await usersCollection.insertOne(user);
       res.send(result);
     });
+
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
-      const result = await bookingCollection.insertOne(booking);
+      const finalBooking = {
+        ...booking,
+        status: booking.status || "Pending",
+        decoratorEmail: null,
+        createdAt: new Date(),
+      };
+      const result = await bookingCollection.insertOne(finalBooking);
+      res.send(result);
+    });
+
+    app.patch("/bookings/cancel/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await bookingCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: "Cancelled" } }
+      );
+      res.send(result);
+    });
+
+    // UPDATE booking (date & location)
+    app.patch("/bookings/update/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { date, location } = req.body;
+
+        const result = await bookingCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              date,
+              location,
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: "Failed to update booking" });
+      }
+    });
+
+    app.get("/bookings", async (req, res) => {
+      const { email } = req.query;
+      const query = email ? { userEmail: email } : {};
+      const result = await bookingCollection.find(query).toArray();
       res.send(result);
     });
 
@@ -146,6 +192,67 @@ async function run() {
       res.send({ success: true, result });
     });
 
+    app.delete("/admin/services/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await serviceCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
+
+    app.post("/admin/services",verifyJWT, async (req, res) => {
+      const { service_name, cost, unit, category, description } = req.body;
+
+      const service = {
+        service_name,
+        cost: Number(cost),
+        unit,
+        category,
+        description,
+        createdByEmail: req.decoded.email, // auto fill
+        createdAt: new Date(),
+      };
+
+      const result = await serviceCollection.insertOne(service);
+      res.send(result);
+    });
+
+    app.put("/admin/services/:id", async (req, res) => {
+      const id = req.params.id;
+      const { service_name, cost, unit, category, description } = req.body;
+
+      const updatedService = {
+        $set: {
+          service_name,
+          cost: Number(cost),
+          unit,
+          category,
+          description,
+          updatedAt: new Date(),
+        },
+      };
+
+      const result = await serviceCollection.updateOne(
+        { _id: new ObjectId(id) },
+        updatedService
+      );
+
+      res.send(result);
+    });
+
+    app.get("/admin/services/:id", async (req, res) => {
+      const id = req.params.id;
+      const service = await serviceCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      res.send(service);
+    });
+
+    app.get("/admin/services", async (req, res) => {
+      const services = await serviceCollection.find().toArray();
+      res.send(services);
+    });
+
     // PATCH: Update User Role
     app.patch("/users/role/:email", async (req, res) => {
       try {
@@ -173,13 +280,8 @@ async function run() {
 
     // GET /api/services -> list all services (optionally pagination)
     app.get("/api/services", async (req, res) => {
-      try {
-        const services = await Service.find().sort({ createdAt: -1 });
-        res.json({ success: true, data: services });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false, message: "Server error" });
-      }
+      const services = await serviceCollection.find().toArray();
+      res.send(services);
     });
 
     // Send a ping to confirm a successful connection
