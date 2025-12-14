@@ -3,6 +3,9 @@ const express = require("express");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const admin = require("firebase-admin");
+const Stripe = require("stripe");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
 const port = process.env.PORT || 3000;
 const decoded = Buffer.from(
   process.env.FB_SERVICE_KEY_TOKEN,
@@ -22,6 +25,7 @@ app.use(
       "http://localhost:5174",
       "http://localhost:3000",
       "http://localhost:5175",
+      "http://localhost:5173",
     ],
     credentials: true,
     optionSuccessStatus: 200,
@@ -83,6 +87,68 @@ async function run() {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
       res.send({ data: user });
+    });
+          // payment
+    app.post("/create-payment-session", async (req, res) => {
+      try {
+        const { bookingId, serviceName, cost } = req.body;
+
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ["card"],
+          mode: "payment",
+          line_items: [
+            {
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name: serviceName,
+                },
+                unit_amount: cost * 100, // Stripe uses cents
+              },
+              quantity: 1,
+            },
+          ],
+          success_url: `${process.env.CLIENT_URL}/dashboard/payment-success?bookingId=${bookingId}`,
+          cancel_url: `${process.env.CLIENT_URL}/dashboard/payment-cancel`,
+        });
+
+        res.send({ url: session.url });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Payment session failed" });
+      }
+    });
+
+    app.patch("/bookings/pay/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const result = await bookingCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            status: "Paid",
+            paidAt: new Date(),
+          },
+        }
+      );
+
+      res.send(result);
+    });
+
+    app.patch("/bookings/mark-paid/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const result = await bookingCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            status: "Paid",
+            paidAt: new Date(),
+          },
+        }
+      );
+
+      res.send(result);
     });
 
     // save or update a user in db
@@ -200,8 +266,9 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/admin/services",verifyJWT, async (req, res) => {
-      const { service_name, cost, unit, category, description,image} = req.body;
+    app.post("/admin/services", verifyJWT, async (req, res) => {
+      const { service_name, cost, unit, category, description, image } =
+        req.body;
 
       const service = {
         title: service_name,
@@ -213,7 +280,6 @@ async function run() {
         image: image || "",
         createdByEmail: req.decoded.email, // auto fill
         createdAt: new Date(),
-      
       };
 
       const result = await serviceCollection.insertOne(service);
@@ -222,7 +288,8 @@ async function run() {
 
     app.put("/admin/services/:id", async (req, res) => {
       const id = req.params.id;
-      const { service_name, cost, unit, category, description, image } = req.body;
+      const { service_name, cost, unit, category, description, image } =
+        req.body;
 
       const updatedService = {
         $set: {
