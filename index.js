@@ -47,7 +47,7 @@ const verifyJWT = async (req, res, next) => {
 
 // Admin verification middleware
 const verifyAdmin = async (req, res, next) => {
-  const email = req.tokenEmail;
+  const email = req.decoded.email;
   try {
     const user = await usersCollection.findOne({ email });
     if (user && user.role === "admin") {
@@ -201,16 +201,19 @@ async function run() {
     });
 
     app.post("/admin/services",verifyJWT, async (req, res) => {
-      const { service_name, cost, unit, category, description } = req.body;
+      const { service_name, cost, unit, category, description,image} = req.body;
 
       const service = {
+        title: service_name,
         service_name,
         cost: Number(cost),
         unit,
         category,
         description,
+        image: image || "",
         createdByEmail: req.decoded.email, // auto fill
         createdAt: new Date(),
+      
       };
 
       const result = await serviceCollection.insertOne(service);
@@ -219,15 +222,17 @@ async function run() {
 
     app.put("/admin/services/:id", async (req, res) => {
       const id = req.params.id;
-      const { service_name, cost, unit, category, description } = req.body;
+      const { service_name, cost, unit, category, description, image } = req.body;
 
       const updatedService = {
         $set: {
+          title: service_name,
           service_name,
           cost: Number(cost),
           unit,
           category,
           description,
+          image: image || "",
           updatedAt: new Date(),
         },
       };
