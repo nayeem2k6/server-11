@@ -50,19 +50,19 @@ const verifyJWT = async (req, res, next) => {
 };
 
 // Admin verification middleware
-const verifyAdmin = async (req, res, next) => {
-  const email = req.decoded.email;
-  try {
-    const user = await usersCollection.findOne({ email });
-    if (user && user.role === "admin") {
-      next();
-    } else {
-      res.status(403).send({ message: "Forbidden: Admin access required" });
-    }
-  } catch (err) {
-    res.status(500).send({ message: "Server error", error: err.message });
-  }
-};
+// const verifyAdmin = async (req, res, next) => {
+//   const email = req.decoded.email;
+//   try {
+//     const user = await usersCollection.findOne({ email });
+//     if (user && user.role === "admin") {
+//       next();
+//     } else {
+//       res.status(403).send({ message: "Forbidden: Admin access required" });
+//     }
+//   } catch (err) {
+//     res.status(500).send({ message: "Server error", error: err.message });
+//   }
+// };
 
 const client = new MongoClient(process.env.MONGODB_URI, {
   serverApi: {
@@ -83,12 +83,129 @@ async function run() {
 
     const serviceCollection = db.collection("services");
 
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      try {
+        const user = await usersCollection.findOne({ email });
+        if (user && user.role === "admin") {
+          next();
+        } else {
+          res.status(403).send({ message: "Forbidden: Admin access required" });
+        }
+      } catch (err) {
+        res.status(500).send({ message: "Server error", error: err.message });
+      }
+    };
+    // Decorator Api
+    const verifyDecorator = async (req, res, next) => {
+      const email = req.decoded.email;
+      const user = await usersCollection.findOne({ email });
+
+      if (user?.role !== "decorator") {
+        return res.status(403).send({ message: "Forbidden" });
+      }
+      next();
+    };
+
+    app.get(
+      "/decorator/projects",
+      verifyJWT,
+      verifyDecorator,
+      async (req, res) => {
+        const email = req.decoded.email;
+
+        const result = await bookingCollection
+          .find({ decoratorEmail: email })
+          .toArray();
+
+        res.send(result);
+      }
+    );
+
+    app.get(
+      "/decorator/today",
+      verifyJWT,
+      verifyDecorator,
+      async (req, res) => {
+        const today = new Date().toISOString().split("T")[0];
+        const email = req.decoded.email;
+
+        const result = await bookingCollection
+          .find({
+            decoratorEmail: email,
+            eventDate: today,
+          })
+          .toArray();
+
+        res.send(result);
+      }
+    );
+
+    app.patch(
+      "/decorator/status/:id",
+      verifyJWT,
+      verifyDecorator,
+      async (req, res) => {
+        const id = req.params.id;
+        const { status } = req.body;
+
+        const result = await bookingCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+
+        res.send(result);
+      }
+    );
+
+    app.get(
+      "/decorator/earnings",
+      verifyJWT,
+      verifyDecorator,
+      async (req, res) => {
+        const email = req.decoded.email;
+
+        const completedJobs = await bookingCollection
+          .find({
+            decoratorEmail: email,
+            status: "completed",
+            paymentStatus: "paid",
+          })
+          .toArray();
+
+        const total = completedJobs.reduce((sum, job) => sum + job.price, 0);
+
+        res.send({
+          totalEarnings: total,
+          jobs: completedJobs.length,
+        });
+      }
+    );
+
+    app.get(
+      "/decorator/payments",
+      verifyJWT,
+      verifyDecorator,
+      async (req, res) => {
+        const email = req.decoded.email;
+
+        const payments = await bookingCollection
+          .find({
+            decoratorEmail: email,
+            paymentStatus: "paid",
+          })
+          .toArray();
+
+        res.send(payments);
+      }
+    );
+
     app.get("/users/:email/role", async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
       res.send({ data: user });
     });
-          // payment
+    // payment
     app.post("/create-payment-session", async (req, res) => {
       try {
         const { bookingId, serviceName, cost } = req.body;
@@ -246,6 +363,71 @@ async function run() {
       }
 
       const result = await serviceCollection.find(query).toArray();
+      res.send(result);
+    });
+
+
+
+    app.patch(
+      "/admin/assign-decorator/:id",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const bookingId = req.params.id;
+          const { decoratorEmail } = req.body;
+
+          // 1️⃣ decorator user খুঁজে বের করি
+          const decorator = await usersCollection.findOne({
+            email: decoratorEmail,
+            role: "decorator",
+            // status: "approved",
+          });
+
+          if (!decorator) {
+            return res
+              .status(404)
+              .send({ message: "Decorator not found or not approved" });
+          }
+
+          // 2️⃣ booking update
+          const result = await bookingCollection.updateOne(
+            { _id: new ObjectId(bookingId), status: "Paid" },
+            {
+              $set: {
+                decoratorEmail: decorator.email,
+                decoratorName:
+                  decorator.name || decorator.displayName || "Decorator",
+                status: "Assigned",
+                assignedAt: new Date(),
+              },
+            }
+          );
+
+          res.send(result);
+        } catch (err) {
+          res
+            .status(500)
+            .send({ message: "Assign failed", error: err.message });
+        }
+      }
+    );
+
+    app.get("/admin/bookings", async (req, res) => {
+      const result = await bookingCollection
+        .find({ status: { $in: ["Paid", "Assigned"] } })
+        .toArray();
+
+      res.send(result);
+    });
+
+    app.get("/admin/decorators", async (req, res) => {
+      const result = await usersCollection
+        .find({ role: "decorator" })
+        //  status: "approved"
+        .project({ email: 1, name: 1 })
+        .toArray();
+
       res.send(result);
     });
 
