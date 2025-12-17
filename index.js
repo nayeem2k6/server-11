@@ -82,6 +82,7 @@ async function run() {
     const usersCollection = db.collection("user");
 
     const serviceCollection = db.collection("services");
+    const paymentCollection = db.collection("payments");
 
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
@@ -121,25 +122,56 @@ async function run() {
         res.send(result);
       }
     );
-
     app.get(
       "/decorator/today",
       verifyJWT,
       verifyDecorator,
       async (req, res) => {
-        const today = new Date().toISOString().split("T")[0];
-        const email = req.decoded.email;
+        try {
+          const email = req.decoded.email;
 
-        const result = await bookingCollection
-          .find({
-            decoratorEmail: email,
-            eventDate: today,
-          })
-          .toArray();
+          // Bangladesh timezone safe
+          const startOfDay = new Date();
+          startOfDay.setHours(0, 0, 0, 0);
 
-        res.send(result);
+          const endOfDay = new Date();
+          endOfDay.setHours(23, 59, 59, 999);
+
+          const result = await bookingCollection
+            .find({
+              decoratorEmail: email,
+              createdAt: {
+                $gte: startOfDay,
+                $lte: endOfDay,
+              },
+            })
+            .toArray();
+
+          res.send(result);
+        } catch (error) {
+          res.status(500).send({ message: "Server error" });
+        }
       }
     );
+
+    // app.get(
+    //   "/decorator/today",
+    //   verifyJWT,
+    //   verifyDecorator,
+    //   async (req, res) => {
+    //     const today = new Date().toISOString().split("T")[0];
+    //     const email = req.decoded.email;
+    //    console.log(today, email)
+    //     const result = await bookingCollection
+    //       .find({
+    //         decoratorEmail: email,
+    //         date: today,
+    //       })
+    //       .toArray();
+
+    //     res.send(result);
+    //   }
+    // );
 
     app.patch(
       "/decorator/status/:id",
@@ -225,8 +257,8 @@ async function run() {
               quantity: 1,
             },
           ],
-          success_url: `${process.env.CLIENT_URL}/dashboard/payment-success?bookingId=${bookingId}`,
-          cancel_url: `${process.env.CLIENT_URL}/dashboard/payment-cancel`,
+          success_url: `${process.env.CLIENT_URL}/dashboard/payment-success?bookingId=${bookingId}&tx={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.CLIENT_URL}/dashboard/bookings`,
         });
 
         res.send({ url: session.url });
@@ -252,18 +284,59 @@ async function run() {
       res.send(result);
     });
 
+    // app.patch("/bookings/mark-paid/:id", async (req, res) => {
+    //   const id = req.params.id;
+
+    //   const result = await bookingCollection.updateOne(
+    //     { _id: new ObjectId(id) },
+    //     {
+    //       $set: {
+    //         status: "Paid",
+    //         paidAt: new Date(),
+    //       },
+    //     }
+    //   );
+
+    //   res.send(result);
+    // });
     app.patch("/bookings/mark-paid/:id", async (req, res) => {
       const id = req.params.id;
+      const { transactionId } = req.body;
 
-      const result = await bookingCollection.updateOne(
+      const booking = await bookingCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      await bookingCollection.updateOne(
         { _id: new ObjectId(id) },
         {
           $set: {
             status: "Paid",
             paidAt: new Date(),
+            transactionId,
           },
         }
       );
+
+      await paymentCollection.insertOne({
+        bookingId: id,
+        email: booking.userEmail,
+        amount: booking.cost,
+        transactionId,
+        date: new Date(),
+        status: "Paid",
+      });
+
+      res.send({ success: true });
+    });
+
+    app.get("/payments/:email", async (req, res) => {
+      const email = req.params.email;
+
+      const result = await paymentCollection
+        .find({ email })
+        .sort({ date: -1 })
+        .toArray();
 
       res.send(result);
     });
@@ -365,8 +438,6 @@ async function run() {
       const result = await serviceCollection.find(query).toArray();
       res.send(result);
     });
-
-
 
     app.patch(
       "/admin/assign-decorator/:id",
