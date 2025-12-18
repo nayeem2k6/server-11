@@ -80,6 +80,7 @@ async function run() {
     const bookingCollection = db.collection("bookings");
 
     const usersCollection = db.collection("user");
+    const decoratorCollection = db.collection("decorators");
 
     const serviceCollection = db.collection("services");
     const paymentCollection = db.collection("payments");
@@ -154,6 +155,63 @@ async function run() {
       }
     );
 
+    // 5️⃣ Bookings Histogram (date wise count)
+    app.get(
+      "/admin/bookings-histogram",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const result = await bookingCollection
+          .aggregate([
+            {
+              $group: {
+                _id: "$date",
+                count: { $sum: 1 },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                date: "$_id",
+                count: 1,
+              },
+            },
+            { $sort: { date: 1 } },
+          ])
+          .toArray();
+
+        res.send(result);
+      }
+    );
+
+    // 4️⃣ Service Demand Chart
+    app.get(
+      "/admin/service-demand",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const result = await bookingCollection
+          .aggregate([
+            {
+              $group: {
+                _id: "$serviceName",
+                count: { $sum: 1 },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                service: "$_id",
+                count: 1,
+              },
+            },
+            { $sort: { count: -1 } },
+          ])
+          .toArray();
+
+        res.send(result);
+      }
+    );
     // app.get(
     //   "/decorator/today",
     //   verifyJWT,
@@ -173,6 +231,22 @@ async function run() {
     //   }
     // );
 
+    // app.patch("/admin/decorator/:id", async (req, res) => {
+    //   const id = req.params.id;
+
+    //   const result = await decoratorCollection.updateOne(
+    //     { _id: new ObjectId(id) },
+    //     {
+    //       $set: {
+    //         status: "approved",
+    //         approvedAt: new Date(),
+    //       },
+    //     }
+    //   );
+
+    //   res.send(result);
+    // });
+
     app.patch(
       "/decorator/status/:id",
       verifyJWT,
@@ -183,7 +257,7 @@ async function run() {
 
         const result = await bookingCollection.updateOne(
           { _id: new ObjectId(id) },
-          { $set: { status } }
+          { $set: { status, updatedAt: new Date() } }
         );
 
         res.send(result);
@@ -484,6 +558,45 @@ async function run() {
       }
     );
 
+    app.patch(
+      "/admin/decorator/:id",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const { status } = req.body; // 👈 frontend থেকে
+        console.log(id, status);
+        if (!["approved", "disabled"].includes(status)) {
+          console.log("test string");
+          return res.status(400).send({ message: "Invalid status" });
+        }
+
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id), role: "decorator" },
+          {
+            $set: {
+              status,
+              updatedAt: new Date(),
+            },
+          }
+        );
+        console.log(result);
+        res.send(result);
+      }
+    );
+
+    // app.get("/admin/decorators", async (req, res) => {
+    //   const result = await usersCollection
+    //     .find({
+    //       role: "decorator",
+    //       status: { $in: ["pending", "approved", "disabled"] },
+    //     })
+    //     .project({ email: 1, name: 1, status: 1 })
+    //     .toArray();
+
+    //   res.send(result);
+    // });
+
     app.get("/admin/bookings", async (req, res) => {
       const result = await bookingCollection
         .find({ status: { $in: ["Paid", "Assigned"] } })
@@ -495,7 +608,7 @@ async function run() {
     app.get("/admin/decorators", async (req, res) => {
       const result = await usersCollection
         .find({ role: "decorator" })
-        //  status: "approved"
+
         .project({ email: 1, name: 1 })
         .toArray();
 
