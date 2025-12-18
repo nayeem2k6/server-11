@@ -212,6 +212,31 @@ async function run() {
         res.send(result);
       }
     );
+
+    // 3️⃣ Revenue Monitoring (daily)
+    app.get("/admin/revenue", verifyJWT,verifyAdmin, async (req, res) => {
+      const result = await bookingCollection
+        .aggregate([
+          { $match: { paymentStatus: "paid" } },
+          {
+            $group: {
+              _id: "$eventDate",
+              total: { $sum: "$price" },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              date: "$_id",
+              total: 1,
+            },
+          },
+          { $sort: { date: 1 } },
+        ])
+        .toArray();
+
+      res.send(result);
+    });
     // app.get(
     //   "/decorator/today",
     //   verifyJWT,
@@ -609,7 +634,7 @@ async function run() {
       const result = await usersCollection
         .find({ role: "decorator" })
 
-        .project({ email: 1, name: 1 })
+        .project({ email: 1, name: 1, status:1 })
         .toArray();
 
       res.send(result);
