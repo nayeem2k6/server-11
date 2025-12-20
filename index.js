@@ -23,9 +23,8 @@ app.use(
     origin: [
       "http://localhost:5173",
       "http://localhost:5174",
-      "http://localhost:3000",
-      "http://localhost:5175",
-      "http://localhost:5173",
+      
+      "https://smart-home-28575.web.app"
     ],
     credentials: true,
     optionSuccessStatus: 200,
@@ -75,13 +74,12 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     const db = client.db("smart-home");
     const bookingCollection = db.collection("bookings");
 
     const usersCollection = db.collection("user");
     const decoratorCollection = db.collection("decorators");
-
     const serviceCollection = db.collection("services");
     const paymentCollection = db.collection("payments");
 
@@ -214,29 +212,31 @@ async function run() {
     );
 
     // 3️⃣ Revenue Monitoring (daily)
-    app.get("/admin/revenue", verifyJWT,verifyAdmin, async (req, res) => {
-      const result = await bookingCollection
-        .aggregate([
-          { $match: { paymentStatus: "paid" } },
-          {
-            $group: {
-              _id: "$eventDate",
-              total: { $sum: "$price" },
-            },
-          },
-          {
-            $project: {
-              _id: 0,
-              date: "$_id",
-              total: 1,
-            },
-          },
-          { $sort: { date: 1 } },
-        ])
-        .toArray();
+    app.get("/admin/revenue", async (req, res) => {
+  const result = await bookingCollection
+    .aggregate([
+      { $match: { status: "completed" } },
+      {
+        $group: {
+          _id: "$date",
+          total: { $sum: "$cost" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          date: "$_id",
+          total: 1,
+        },
+      },
+      { $sort: { date: 1 } },
+    ])
+    .toArray();
 
-      res.send(result);
-    });
+  res.send(result);
+});
+
+
     // app.get(
     //   "/decorator/today",
     //   verifyJWT,
@@ -314,22 +314,21 @@ async function run() {
     );
 
     app.get(
-      "/decorator/payments",
-      verifyJWT,
-      verifyDecorator,
+      "/decorator/payments/:email",
       async (req, res) => {
-        const email = req.decoded.email;
-
+        const email = req.params.email;
+        console.log(email)
         const payments = await bookingCollection
           .find({
             decoratorEmail: email,
-            paymentStatus: "paid",
+
           })
           .toArray();
 
         res.send(payments);
       }
     );
+
 
     app.get("/users/:email/role", async (req, res) => {
       const email = req.params.email;

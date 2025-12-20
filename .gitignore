@@ -6,3 +6,4 @@ vercel.json
 
 serviceAccountKey.json
 ServiceKeyConverter.js
+.vercel
