@@ -588,7 +588,7 @@ async function run() {
       verifyAdmin,
       async (req, res) => {
         const id = req.params.id;
-        const { status } = req.body; // 👈 frontend থেকে
+        const { status } = req.body;
         console.log(id, status);
         if (!["approved", "disabled"].includes(status)) {
           console.log("test string");
@@ -629,15 +629,33 @@ async function run() {
       res.send(result);
     });
 
+    // app.get("/admin/decorators", async (req, res) => {
+    //   const result = await usersCollection
+    //     .find({ role: "decorator" })
+
+    //     .project({ email: 1, name: 1, status:1 })
+    //     .toArray();
+
+    //   res.send(result);
+    // });
+
+
+
     app.get("/admin/decorators", async (req, res) => {
-      const result = await usersCollection
-        .find({ role: "decorator" })
+  const { status } = req.query;
 
-        .project({ email: 1, name: 1, status:1 })
-        .toArray();
+  const query = { role: "decorator" };
+  if (status && status !== "all") {
+    query.status = status;
+  }
 
-      res.send(result);
-    });
+  const result = await usersCollection
+    .find(query)
+    .project({ email: 1, name: 1, status: 1 })
+    .toArray();
+
+  res.send(result);
+});
 
     app.get("/services/:id", async (req, res) => {
       const { id } = req.params;
